@@ -20,29 +20,33 @@ Parameters:
     Default: AWS
     Type: String
     Description: Prefix for all AWS resources
-  WhitelistIP:
-    Type: String
-    Description: IP address to whitelist to access bastion server
   InstanceAMI:
     Default: ami-02f26adf094f51167
     Type: AWS::EC2::Image::Id
   InstanceType:
     Default: t2.micro
     Type: String
+  # for DEV env, please specify NAT key
   NATKeyName:
-    Default: None
+    Default: AWS::NoValue
     Type: String
     Description: NAT Instance keypair - For dev only
+  # if you create a bastion, please also specify BastionKeyName and WhitelistIP
+  CreateBastion:
+    Default: 'True'
+    Type: String
+    AllowedValues:
+    - 'True'
+    - 'False'
+    Description: Flag to create bastion server
   BastionKeyName:
-    Default: None
+    Default: AWS::NoValue
     Type: String
     Description: Bastion Instance keypair
-  CreateBastion:
-    Default: True
-    AllowedValue:
-    - True
-    - False
-    Description: Flag to create bastion server
+  WhitelistIP:
+    Default: AWS::NoValue
+    Type: String
+    Description: IP address to whitelist to access bastion server
 
 
 
@@ -205,7 +209,7 @@ Resources:
       VpcId: !Ref VPC
       Tags:
       - Key: Name
-        Value: !Ref !Sub '${ResourcePrefix}-RT-IGW'
+        Value: !Sub '${ResourcePrefix}-RT-IGW'
       - Key: Description
         Value: !Sub 'Route Table Routing to IGW for ${ResourcePrefix}'
   PublicRoute:
@@ -222,7 +226,7 @@ Resources:
       VpcId: !Ref VPC
       Tags:
       - Key: Name
-        Value: !Ref !Sub '${ResourcePrefix}-RT-NAT'
+        Value: !Sub '${ResourcePrefix}-RT-NAT'
       - Key: Description
         Value: !Sub 'Route Table Routing to NAT for ${ResourcePrefix}'
   NATGatewayRoute:
@@ -328,6 +332,16 @@ Resources:
         Value: !Sub '${ResourcePrefix}-SG-BASTION'
       - Key: Description
         Value: Security Group for Bastion
+  NATSGIngressFromBastion:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: CreateBastionResources
+    Properties:
+      GroupId: !Ref NATSecurityGroup
+      Description: Allow bastion server to access NAT instance via SSH
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      SourceSecurityGroup: !GetAtt BastionSecurityGroup.GroupId
 
   # NAT Gateway - create only in production environment
   ElasticIPAddress:
@@ -343,7 +357,7 @@ Resources:
       AllocationId: !GetAtt ElasticIPAddress.AllocationId
       Tags:
       - Key: Name
-        Value: !Ref !Sub '${ResourcePrefix}-NAT'
+        Value: !Sub '${ResourcePrefix}-NAT'
       - Key: Description
         Value: Nat Gateway
 
@@ -369,8 +383,7 @@ Resources:
         IpProtocol: -1
         FromPort: -1
         ToPort: -1
-        CidrIp: !Sub
-        !Select
+        CidrIp: !Select
         - 3
         - !Cidr
           - !GetAtt VPC.CidrBlock
@@ -382,15 +395,6 @@ Resources:
         Value: !Sub '${ResourcePrefix}-SG-NAT'
       - Key: Description
         Value: Security Group for NAT Instance
-  NATSGIngress:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties:
-      GroupId: !Ref NATSecurityGroup
-      Description: Allow bastion server to access NAT instance via SSH
-      IpProtocol: tcp
-      FromPort: 22
-      ToPort: 22
-      SourceSecurityGroup: SourceSecurityGroupId: !GetAtt BastionSecurityGroup.GroupId
   NATEC2Instance:
     DependsOn:
     - PublicSubnetAZ1
@@ -474,3 +478,11 @@ Outputs:
     Value: !Ref Environment
     Export:
       Name: Infra-Env
+  BastionIP:
+    Condition: CreateBastionResources
+    Description: Bastion server IP address
+    Value: !Ref BastionElasticIPAddress
+  NATIP:
+    Condition: CreateDevResources
+    Description: NAT instance IP address
+    Value: !Ref NATElasticIPAddress
